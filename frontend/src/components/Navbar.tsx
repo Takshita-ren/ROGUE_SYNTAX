@@ -1,12 +1,13 @@
 import React from 'react';
 import { NavLink, Link, useNavigate } from 'react-router-dom';
-import { Activity, Dumbbell, LayoutDashboard, History, Settings, Play } from 'lucide-react';
+import { Activity, Dumbbell, LayoutDashboard, History, Settings, Play, Calendar } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
   const navigate = useNavigate();
 
   const navItems = [
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
+    { name: 'My Plan', path: '/plan', icon: Calendar },
     { name: 'Live Workout', path: '/workout', icon: Activity },
     { name: 'History', path: '/history', icon: History },
     { name: 'Settings', path: '/settings', icon: Settings },

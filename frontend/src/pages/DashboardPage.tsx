@@ -28,12 +28,15 @@ import { StatsSummary, WorkoutSessionSummary } from '../types/pose';
 import { StatCard } from '../components/StatCard';
 import { ExercisePicker } from '../components/ExercisePicker';
 import { EXERCISE_LIST } from '../utils/exerciseConfigs';
+import { getUserProfile, getWorkoutPlan } from '../utils/planGenerator';
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
   const [selectedExercise, setSelectedExercise] = useState<string>('all');
   const [stats, setStats] = useState<StatsSummary | null>(null);
   const [recentWorkouts, setRecentWorkouts] = useState<WorkoutSessionSummary[]>([]);
+  const userProfile = getUserProfile();
+  const workoutPlan = getWorkoutPlan();
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRetrying, setIsRetrying] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -142,6 +145,40 @@ export const DashboardPage: React.FC = () => {
             <span>Start Quick Workout</span>
           </button>
         </div>
+      </div>
+
+      {/* Personalized Weekly Plan Quick Bar */}
+      <div className="p-5 sm:p-6 rounded-2xl bg-dark-900 border border-brand-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg">
+        <div className="flex items-center gap-3.5">
+          <div className="w-10 h-10 rounded-xl bg-brand-500/10 border border-brand-500/30 flex items-center justify-center text-brand-neon shrink-0">
+            <Calendar className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-brand-500/10 text-brand-neon border border-brand-500/20">
+                Personalized Plan
+              </span>
+              {userProfile && (
+                <span className="text-xs text-slate-400 capitalize">
+                  {userProfile.fitnessLevel} • {userProfile.mainGoal.replace('_', ' ')}
+                </span>
+              )}
+            </div>
+            <h3 className="text-base font-bold text-white mt-0.5">
+              {workoutPlan
+                ? `Weekly Routine: ${workoutPlan.workoutDaysPerWeek} Days / Week Scheduled`
+                : 'Build Your Custom Science-Backed Workout Plan'}
+            </h3>
+          </div>
+        </div>
+
+        <button
+          onClick={() => navigate('/plan')}
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-brand-neon hover:text-white border border-brand-500/30 text-xs font-semibold transition-all shrink-0"
+        >
+          <span>{workoutPlan ? 'Open My Plan' : 'Setup Plan in 60s'}</span>
+          <ArrowRight className="w-3.5 h-3.5" />
+        </button>
       </div>
 
       {/* Exercise Filter Toolbar */}

@@ -61,6 +61,13 @@ export const LandingPage: React.FC = () => {
                 <span>Start Your Workout</span>
               </button>
               <button
+                onClick={() => navigate('/plan')}
+                className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-4 rounded-xl bg-dark-900 hover:bg-dark-850 text-slate-200 border border-brand-500/30 hover:border-brand-500/50 font-semibold text-base transition-all"
+              >
+                <Sparkles className="w-4 h-4 text-brand-neon" />
+                <span>Personalized Weekly Plan</span>
+              </button>
+              <button
                 onClick={scrollToHowItWorks}
                 className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-4 rounded-xl bg-dark-900 hover:bg-dark-850 text-slate-200 border border-white/10 font-semibold text-base transition-all"
               >

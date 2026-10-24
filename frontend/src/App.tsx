@@ -8,8 +8,13 @@ import { WorkoutPage } from './pages/WorkoutPage';
 import { WorkoutSummaryPage } from './pages/WorkoutSummaryPage';
 import { WorkoutHistoryPage } from './pages/WorkoutHistoryPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { MyPlanPage } from './pages/MyPlanPage';
+import { OnboardingModal } from './components/OnboardingModal';
+import { getUserProfile } from './utils/planGenerator';
 
 export const App: React.FC = () => {
+  const [showFirstTimeOnboarding, setShowFirstTimeOnboarding] = React.useState<boolean>(false);
+
   useEffect(() => {
     // Check saved theme
     const savedTheme = localStorage.getItem('repright_theme');
@@ -17,6 +22,13 @@ export const App: React.FC = () => {
       document.documentElement.classList.remove('dark');
     } else {
       document.documentElement.classList.add('dark');
+    }
+
+    // Check if first-time user
+    const existingProfile = getUserProfile();
+    const hasSeenOnboarding = localStorage.getItem('repright_onboarded_dismissed');
+    if (!existingProfile && !hasSeenOnboarding) {
+      setShowFirstTimeOnboarding(true);
     }
   }, []);
 
@@ -28,6 +40,7 @@ export const App: React.FC = () => {
           <Routes>
             <Route path="/" element={<LandingPage />} />
             <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/plan" element={<MyPlanPage />} />
             <Route path="/workout" element={<WorkoutPage />} />
             <Route path="/workout/:exerciseId" element={<WorkoutPage />} />
             <Route path="/summary" element={<WorkoutSummaryPage />} />
@@ -37,6 +50,17 @@ export const App: React.FC = () => {
           </Routes>
         </main>
         <Footer />
+
+        <OnboardingModal
+          isOpen={showFirstTimeOnboarding}
+          onClose={() => {
+            setShowFirstTimeOnboarding(false);
+            localStorage.setItem('repright_onboarded_dismissed', 'true');
+          }}
+          onComplete={() => {
+            setShowFirstTimeOnboarding(false);
+          }}
+        />
       </div>
     </BrowserRouter>
   );

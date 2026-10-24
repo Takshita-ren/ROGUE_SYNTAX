@@ -13,16 +13,29 @@ import {
   CheckCircle2,
   AlertTriangle,
   Award,
+  Sparkles,
+  Edit3,
+  RotateCcw,
+  Calendar,
+  Dumbbell,
 } from 'lucide-react';
 import { api } from '../services/api';
 import { audioEngine } from '../utils/audioChime';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { OnboardingModal } from '../components/OnboardingModal';
+import { getUserProfile, generateWorkoutPlan, saveWorkoutPlan } from '../utils/planGenerator';
+import { UserProfile } from '../types/plan';
 
 export const SettingsPage: React.FC = () => {
   // Theme state
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     return document.documentElement.classList.contains('dark') || true;
   });
+
+  // Profile & Plan state
+  const [profile, setProfile] = useState<UserProfile | null>(() => getUserProfile());
+  const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
+  const [profileSuccessMsg, setProfileSuccessMsg] = useState<string | null>(null);
 
   // Preferences
   const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
@@ -105,6 +118,85 @@ export const SettingsPage: React.FC = () => {
           <span>{clearSuccessMsg}</span>
         </div>
       )}
+
+      {profileSuccessMsg && (
+        <div className="p-4 rounded-xl bg-brand-500/10 border border-brand-500/20 text-brand-neon text-sm flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+          <span>{profileSuccessMsg}</span>
+        </div>
+      )}
+
+      {/* Fitness Profile & Workout Plan Preferences */}
+      <div className="p-6 rounded-2xl bg-dark-900 border border-white/5 space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/5">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-brand-500/10 text-brand-neon">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-white">Fitness Profile & Weekly Plan</h3>
+              <p className="text-xs text-slate-400">
+                Manage your biometrics, goal, level, schedule, and equipment
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowProfileModal(true)}
+            className="px-4 py-2 rounded-xl bg-brand-500 hover:bg-brand-400 text-dark-950 font-bold text-xs flex items-center gap-1.5 transition-all shadow-neon"
+          >
+            <Edit3 className="w-3.5 h-3.5" />
+            <span>{profile ? 'Edit Profile' : 'Set Up Profile'}</span>
+          </button>
+        </div>
+
+        {profile ? (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+            <div className="p-3 rounded-xl bg-dark-850 border border-white/5">
+              <span className="text-slate-500 block mb-1">Height & Weight</span>
+              <span className="text-white font-semibold">
+                {profile.heightUnit === 'ft_in' && profile.heightFt !== undefined
+                  ? `${profile.heightFt}'${profile.heightIn || 0}"`
+                  : `${profile.height} cm`}{' '}
+                •{' '}
+                {profile.weightUnit === 'lbs'
+                  ? `${Math.round(profile.weight * 2.20462)} lbs`
+                  : `${profile.weight} kg`}
+              </span>
+            </div>
+
+            <div className="p-3 rounded-xl bg-dark-850 border border-white/5">
+              <span className="text-slate-500 block mb-1">Level & Age</span>
+              <span className="text-white font-semibold capitalize">
+                {profile.fitnessLevel} • {profile.ageRange || 'Not set'}
+              </span>
+            </div>
+
+            <div className="p-3 rounded-xl bg-dark-850 border border-white/5">
+              <span className="text-slate-500 block mb-1">Goal</span>
+              <span className="text-white font-semibold capitalize">
+                {profile.mainGoal.replace('_', ' ')}
+              </span>
+            </div>
+
+            <div className="p-3 rounded-xl bg-dark-850 border border-white/5">
+              <span className="text-slate-500 block mb-1">Schedule & Gear</span>
+              <span className="text-white font-semibold">
+                {profile.workoutDaysPerWeek} days/wk • {profile.equipment.length} gear
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="p-4 rounded-xl bg-dark-850/60 border border-white/5 text-xs text-slate-400 flex items-center justify-between">
+            <span>No personalized fitness profile configured yet.</span>
+            <button
+              onClick={() => setShowProfileModal(true)}
+              className="text-brand-neon hover:underline font-semibold"
+            >
+              Configure Now →
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* Preferences Section */}
       <div className="p-6 rounded-2xl bg-dark-900 border border-white/5 space-y-6">
@@ -295,6 +387,19 @@ export const SettingsPage: React.FC = () => {
         isDestructive={true}
         onConfirm={handleClearHistory}
         onCancel={() => setShowClearModal(false)}
+      />
+
+      {/* Edit Profile Modal */}
+      <OnboardingModal
+        isOpen={showProfileModal}
+        onClose={() => setShowProfileModal(false)}
+        initialProfile={profile}
+        isEditing={!!profile}
+        onComplete={(newProfile) => {
+          setProfile(newProfile);
+          setProfileSuccessMsg('Successfully updated your fitness profile and regenerated your workout plan.');
+          setTimeout(() => setProfileSuccessMsg(null), 5000);
+        }}
       />
     </div>
   );

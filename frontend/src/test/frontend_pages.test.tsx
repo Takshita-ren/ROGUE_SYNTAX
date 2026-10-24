@@ -40,6 +40,7 @@ describe('Frontend Pages and Components', () => {
 
     expect(screen.getByText('RepRight')).toBeInTheDocument();
     expect(screen.getByText('Dashboard')).toBeInTheDocument();
+    expect(screen.getByText('My Plan')).toBeInTheDocument();
     expect(screen.getByText('Live Workout')).toBeInTheDocument();
     expect(screen.getByText('History')).toBeInTheDocument();
   });
