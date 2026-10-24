@@ -12,6 +12,7 @@ import {
   Info,
   CheckCircle2,
   AlertTriangle,
+  Award,
 } from 'lucide-react';
 import { api } from '../services/api';
 import { audioEngine } from '../utils/audioChime';
@@ -170,6 +171,59 @@ export const SettingsPage: React.FC = () => {
           >
             <div className="w-4 h-4 rounded-full bg-dark-950 shadow-md" />
           </button>
+        </div>
+      </div>
+
+      {/* Target Workout Goals (Reps / Sets / Hold Duration) */}
+      <div className="p-6 rounded-2xl bg-dark-900 border border-white/5 space-y-4">
+        <h3 className="text-base font-bold text-white flex items-center gap-2">
+          <Award className="w-5 h-5 text-brand-neon" />
+          <span>Workout Target Goals & Sets</span>
+        </h3>
+        <p className="text-xs text-slate-400">
+          Configure default repetition and isometric hold targets. Reaching these targets triggers the &ldquo;Set Complete&rdquo; celebration cue.
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+          <div className="p-4 rounded-xl bg-dark-850 border border-white/5 space-y-2">
+            <label className="text-xs font-semibold text-slate-300 block">
+              Default Rep Target (Per Set)
+            </label>
+            <select
+              defaultValue={localStorage.getItem('repright_default_target_reps') || '15'}
+              onChange={(e) => {
+                localStorage.setItem('repright_default_target_reps', e.target.value);
+              }}
+              className="w-full px-3 py-2 rounded-lg bg-dark-900 border border-white/10 text-white font-mono text-xs outline-none focus:border-brand-500"
+            >
+              <option value="8">8 Reps (Strength / Hypertrophy)</option>
+              <option value="10">10 Reps (Standard)</option>
+              <option value="12">12 Reps (Fitness)</option>
+              <option value="15">15 Reps (Endurance - Recommended)</option>
+              <option value="20">20 Reps (High Volume)</option>
+              <option value="25">25 Reps (Cardio Burn)</option>
+            </select>
+          </div>
+
+          <div className="p-4 rounded-xl bg-dark-850 border border-white/5 space-y-2">
+            <label className="text-xs font-semibold text-slate-300 block">
+              Default Plank Hold Target
+            </label>
+            <select
+              defaultValue={localStorage.getItem('repright_default_target_hold') || '45'}
+              onChange={(e) => {
+                localStorage.setItem('repright_default_target_hold', e.target.value);
+              }}
+              className="w-full px-3 py-2 rounded-lg bg-dark-900 border border-white/10 text-white font-mono text-xs outline-none focus:border-brand-500"
+            >
+              <option value="20">20 Seconds (Beginner)</option>
+              <option value="30">30 Seconds (Moderate)</option>
+              <option value="45">45 Seconds (Intermediate - Recommended)</option>
+              <option value="60">60 Seconds (1 Minute Goal)</option>
+              <option value="90">90 Seconds (Advanced)</option>
+              <option value="120">120 Seconds (2 Minutes Pro)</option>
+            </select>
+          </div>
         </div>
       </div>
 

@@ -7,40 +7,60 @@
 [![Backend](https://img.shields.io/badge/Backend-FastAPI%20%7C%20SQLAlchemy%20%7C%20SQLite-green.svg)](backend/)
 [![Computer Vision](https://img.shields.io/badge/AI%20Vision-MediaPipe%20Tasks%20Vision-neon.svg)](https://developers.google.com/mediapipe)
 
-RepRight is an AI-powered fitness coach that uses real-time computer vision in your browser to analyze your bodyweight squat technique, count repetitions automatically using a finite state machine, and guide your training with explainable biomechanical cues.
+RepRight is an AI-powered fitness coach that uses real-time computer vision in your browser to analyze your exercise technique, count repetitions and time holds automatically using a generic biomechanical engine, and guide your training with explainable form cues.
 
 ---
 
 ## Table of Contents
 
 1. [Key Features](#key-features)
-2. [Architecture & How It Works](#architecture--how-it-works)
-3. [Computer Vision & Squat Analysis Pipeline](#computer-vision--squat-analysis-pipeline)
-4. [Technology Stack](#technology-stack)
-5. [Project Structure](#project-structure)
-6. [Prerequisites](#prerequisites)
-7. [Quick Start & Local Setup](#quick-start--local-setup)
+2. [Supported Exercises](#supported-exercises)
+3. [Architecture & How It Works](#architecture--how-it-works)
+4. [Config-Driven Biomechanical Engine](#config-driven-biomechanical-engine)
+5. [Threshold Tuning & Calibration](#threshold-tuning--calibration)
+6. [Technology Stack](#technology-stack)
+7. [Project Structure](#project-structure)
+8. [Prerequisites](#prerequisites)
+9. [Quick Start & Local Setup](#quick-start--local-setup)
    - [Backend Setup](#1-backend-setup-fastapi)
    - [Frontend Setup](#2-frontend-setup-react--vite)
-8. [Automated Testing](#automated-testing)
-9. [Production Build](#production-build)
-10. [Manual Camera Testing Guide](#manual-camera-testing-guide)
-11. [Privacy & Security](#privacy--security)
-12. [Open Source & Model Attribution](#open-source--model-attribution)
+10. [Automated Testing](#automated-testing)
+11. [Production Build](#production-build)
+12. [Manual Camera Testing Guide](#manual-camera-testing-guide)
+13. [Privacy & Security](#privacy--security)
+14. [Open Source & Model Attribution](#open-source--model-attribution)
 
 ---
 
 ## Key Features
 
 - **Real-Time Client-Side Pose Tracking:** Detects 33 body landmarks locally in your browser using Google MediaPipe Pose Landmarker without sending camera video to external servers.
-- **Biomechanical Joint-Angle Calculation:** Computes true 2D knee angles (hip-knee-ankle) using clamped vector dot products with Exponential Moving Average (EMA) jitter dampening.
-- **Finite State Machine Squat Counter:** Prevents false repetitions through a 4-state cycle: `READY` $\to$ `DESCENDING` $\to$ `BOTTOM` $\to$ `ASCENDING` $\to$ `READY`.
-- **Shallow Squat & Incomplete Attempt Detection:** Distinguishes between full squats (knee angle $\le 102^\circ$) and shallow attempts, alerting the user to descend deeper.
-- **Real-Time Explainable Coaching Cues:** Displays contextual form guidance (*"Controlled descent"*, *"Great depth! Drive back up"*, *"Keep your chest upright"*).
-- **Overlaid Neon Skeleton HUD:** Dynamic visual overlay with color-coded joints and live knee-angle numerical badges that change color based on movement phase.
-- **Synthesized Audio Chime:** Low-latency Web Audio API chime triggered when a repetition completes, with an instant mute toggle.
-- **Persistent Local Database:** Stores completed workout summaries, repetition speeds, and depth breakdowns in an SQLite database via a FastAPI REST backend.
-- **Dashboard & History Analytics:** Interactive weekly squat activity charts (Recharts) and detailed session logs with sorting and deletion controls.
+- **Config-Driven Exercise Engine:** Supports any movement via declarative configurations (`ExerciseConfig`), accommodating both repetition-based exercises and timed isometric holds.
+- **Biomechanical Joint-Angle Math:** Computes true 2D joint angles with clamped vector dot products, Exponential Moving Average (EMA) jitter dampening, and automated landmark visibility checks (< 0.5 confidence pause).
+- **Multi-Direction State Machine:** Supports both angle-decreasing movements (squats, push-ups, lunges, curls) and angle-increasing movements (overhead shoulder press, jumping jacks).
+- **Timed Hold Mode:** Tracks bodyline alignment and accumulates good-form hold seconds (e.g. isometric plank), pausing timer accumulation and alerting during form breaks.
+- **Real-Time Explainable Coaching Cues:** Displays contextual form guidance (*"Squeeze glutes — do not sag hips"*, *"Pin elbows to sides"*, *"Clap hands fully overhead"*).
+- **Overlaid Neon Skeleton HUD with Exercise Highlighting:** Dynamic visual overlay with joint highlighting and bone glowing customized to each exercise's primary kinetic chain.
+- **Exercise Picker & Routing:** Dedicated exercise selection catalog (`/workout/:exerciseId`) categorized into Legs, Push, Pull, Core, and Full-Body.
+- **Target Goals & Set Completion:** Customizable target reps and hold durations in Settings, alerting when a workout set is completed.
+- **Persistent Local Database & Multi-Exercise Filtering:** SQLite database with non-destructive auto-migration storing `exercise_id`, `reps`, and `hold_seconds`, with per-exercise filtering in Dashboard and History.
+
+---
+
+## Supported Exercises
+
+RepRight supports 8 core exercises out of the box:
+
+| Exercise | Category | Mode | Direction | Primary Angle | Real-Time Form Check |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Bodyweight Squat** | Legs | Reps | Decreasing | Knee Angle | Torso uprightness / excessive forward lean |
+| **Push-Up** | Push | Reps | Decreasing | Elbow Angle | Bodyline integrity: sagged hips or piked hips |
+| **Walking / Static Lunge** | Legs | Reps | Decreasing | Lead Knee Angle | Torso upright angle over hips |
+| **Bicep Curl** | Pull | Reps | Decreasing | Elbow Angle | Torso sway & elbow drift forward |
+| **Overhead Shoulder Press** | Push | Reps | Increasing | Elbow Angle | Lumbar back arching / hyper-extension |
+| **Sit-Up / Crunch** | Core | Reps | Decreasing | Torso-Hip Flexion | Cervical spine stress / pulling on neck |
+| **Jumping Jack** | Full-Body | Reps | Increasing | Arm Elevation | Overhead arm reach & cycle symmetry |
+| **Forearm Plank** | Core | Hold | Neutral | Bodyline Angle | Sagging or piked hips; pauses hold timer |
 
 ---
 
@@ -60,52 +80,84 @@ RepRight is an AI-powered fitness coach that uses real-time computer vision in y
 │                            │                              │
 │       ┌────────────────────┴────────────────────┐         │
 │       ▼                                         ▼         │
-│  [Vector Math: Knee & Torso Angles]      [Skeleton Canvas]│
-│       │                                                   │
+│  [Vector Math: Joint Angles & Visibilities] [Skeleton Canvas]
+│       │                                     (Highlighted Joints)
 │       ▼                                                   │
-│  [Squat Finite State Machine] ──> [Web Audio Chime]       │
-│  (READY -> DESCENDING -> BOTTOM -> ASCENDING)             │
+│  [Config-Driven ExerciseEngine] ──> [Web Audio Chime]     │
+│  (Config: Squat, Push-up, Press, Plank...)               │
 │       │                                                   │
 │       ▼                                                   │
 │  [Workout Session Summary]                                │
 └───────────────────────┬───────────────────────────────────┘
                         │ HTTP POST /api/workouts
+                        │ (session_id, exercise_id, reps, hold_seconds)
                         ▼
 ┌───────────────────────────────────────────────────────────┐
 │                    FastAPI Backend                        │
 │                                                           │
 │  [Routes: /api/workouts, /api/stats/summary, /api/health] │
+│  (Filtered by exercise_id query param)                    │
 │                            │                              │
 │                            ▼                              │
 │                  [SQLAlchemy ORM]                         │
 │                            │                              │
 │                            ▼                              │
 │               [SQLite Database (Local)]                   │
+│               (Safe dynamic auto-migration)               │
 └───────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Computer Vision & Squat Analysis Pipeline
+## Config-Driven Biomechanical Engine
 
-RepRight does **not** rely on opaque black-box machine learning for rep counting. Instead, it pairs state-of-the-art landmark detection with deterministic biomechanics:
+All exercise rules, phase thresholds, and form checks are completely decoupled from UI components and stored in `frontend/src/utils/exerciseConfigs.ts`.
 
-### 1. Vector Joint-Angle Calculation
-Given points $A$ (Hip), $B$ (Knee/Vertex), and $C$ (Ankle):
-$$\vec{v}_{BA} = A - B, \quad \vec{v}_{BC} = C - B$$
-$$\cos(\theta) = \text{clamp}\left(\frac{\vec{v}_{BA} \cdot \vec{v}_{BC}}{\|\vec{v}_{BA}\| \|\vec{v}_{BC}\|}, -1.0, 1.0\right)$$
-$$\theta = \arccos(\cos(\theta)) \times \frac{180^\circ}{\pi}$$
+Each exercise is defined as an `ExerciseConfig`:
 
-### 2. Jitter Reduction (EMA Filter)
-$$\theta_{\text{smoothed}} = \alpha \theta_{\text{raw}} + (1 - \alpha) \theta_{\text{previous}}, \quad (\alpha = 0.4)$$
+```typescript
+export interface ExerciseConfig {
+  id: string;
+  name: string;
+  category: ExerciseCategory; // 'legs' | 'push' | 'pull' | 'core' | 'full-body'
+  mode: ExerciseMode;         // 'reps' | 'hold'
+  camera: {
+    recommendedView: 'front' | 'side';
+    setupTip: string;
+  };
+  trackedAngles: TrackedAngleConfig[];
+  primaryAngle: string;
+  direction: 'decreasing' | 'increasing';
+  phases: PhaseThresholds;
+  formChecks: FormCheckConfig[];
+  partialRepMessage: string;
+  requiredLandmarks?: number[];
+  highlightJoints?: number[];
+  highlightBones?: [number, number][];
+  defaultTargetReps?: number;
+  defaultTargetHoldSeconds?: number;
+}
+```
 
-### 3. Squat State Machine Thresholds
-- **Standing / Upright:** Knee angle $\ge 158^\circ$
-- **Descent Initiation:** Knee angle drops below $148^\circ$
-- **Bottom Depth Target:** Knee angle drops to $\le 102^\circ$ (parallel femur)
-- **Ascent:** Knee angle rises above bottom $+ 10^\circ$
-- **Lockout:** Returns to $\ge 158^\circ$ with minimum rep duration $\ge 700\text{ ms}$
-- **Shallow Attempt:** If user reverses before reaching $\le 102^\circ$, an incomplete attempt is logged and feedback alerts: *"Squat not deep enough. Go deeper!"*
+---
+
+## Threshold Tuning & Calibration
+
+All angle thresholds live in [`frontend/src/utils/exerciseConfigs.ts`](frontend/src/utils/exerciseConfigs.ts) with detailed comments for camera tuning:
+
+- **Decreasing movements (e.g. Squat, Push-up):**
+  - `startThreshold`: Angle when standing/extended (e.g. $158^\circ$ for squat, $155^\circ$ for push-up).
+  - `bottomThreshold`: Target flexion depth required (e.g. $\le 102^\circ$ for squat, $\le 95^\circ$ for push-up).
+  - `lockoutThreshold`: Angle returning to extension to complete the repetition (e.g. $\ge 158^\circ$).
+- **Increasing movements (e.g. Shoulder Press, Jumping Jack):**
+  - `startThreshold`: Angle at start/rack position (e.g. $\le 90^\circ$).
+  - `bottomThreshold`: Lockout extension overhead (e.g. $\ge 155^\circ$).
+  - `lockoutThreshold`: Return descent back to rack position (e.g. $\le 95^\circ$).
+- **Timed Isometric Holds (e.g. Plank):**
+  - `startThreshold`: Straight bodyline target ($\ge 155^\circ$).
+  - If bodyline drops below $152^\circ$, form breaks and hold time accumulation freezes until posture is corrected.
+- **Landmark Visibility Guard:**
+  - If key landmarks drop below $0.5$ confidence, counting pauses with the cue: *"Move back so your full body is visible"*.
 
 ---
 
@@ -232,24 +284,24 @@ Open your browser at **`http://localhost:5173`**.
 
 ### Running Backend Tests (Pytest)
 
-The backend test suite validates database models, API endpoints, schema validation, idempotent submission, and statistical calculations:
+The backend test suite validates database models, API endpoints, schema validation, idempotent submission, multi-exercise creation, hold/rep metric storage, `exercise_id` filtering, and legacy old-row compatibility:
 
 ```bash
 PYTHONPATH=backend backend/venv/bin/pytest backend/tests/ -v
 ```
 
-**Results:** `10 passed in 0.47s`
+**Results:** `16 passed in 0.70s`
 
 ### Running Frontend & CV Tests (Vitest)
 
-The frontend test suite tests joint angle trigonometry, clamp boundary conditions, jitter smoothing, 4-phase squat state transitions, shallow rep detection, and component rendering:
+The frontend test suite tests joint angle trigonometry, clamp boundary conditions, jitter smoothing, generic exercise engine state transitions, squat backward compatibility, angle-increasing shoulder press cycles, plank timed hold accumulation & form-break pauses, visibility-pause behavior, and synthetic landmark form checks for all 8 exercises:
 
 ```bash
 cd frontend
 npm run test
 ```
 
-**Results:** `19 passed in 1.12s`
+**Results:** `33 passed in 1.95s`
 
 ---
 

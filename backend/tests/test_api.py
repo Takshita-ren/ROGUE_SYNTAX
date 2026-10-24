@@ -256,3 +256,126 @@ def test_cors_vercel_preview_regex(client):
     assert response.status_code == 200
     assert response.headers.get("access-control-allow-origin") == preview_origin
 
+def test_create_multiexercise_workouts(client):
+    now = datetime.now(timezone.utc)
+    
+    # 1. Push-up (reps)
+    pushup_res = client.post("/api/workouts", json={
+        "session_id": "pushup-session-1",
+        "exercise_id": "pushup",
+        "exercise_type": "pushup",
+        "start_time": now.isoformat(),
+        "end_time": now.isoformat(),
+        "duration_seconds": 90.0,
+        "valid_reps": 15,
+        "reps": 15,
+        "hold_seconds": None,
+        "incomplete_attempts": 1
+    })
+    assert pushup_res.status_code == 201
+    data = pushup_res.json()
+    assert data["exercise_id"] == "pushup"
+    assert data["reps"] == 15
+    assert data["hold_seconds"] is None
+
+    # 2. Plank (hold mode)
+    plank_res = client.post("/api/workouts", json={
+        "session_id": "plank-session-1",
+        "exercise_id": "plank",
+        "exercise_type": "plank",
+        "start_time": now.isoformat(),
+        "end_time": now.isoformat(),
+        "duration_seconds": 65.0,
+        "valid_reps": 0,
+        "reps": 0,
+        "hold_seconds": 60.5,
+        "incomplete_attempts": 0
+    })
+    assert plank_res.status_code == 201
+    plank_data = plank_res.json()
+    assert plank_data["exercise_id"] == "plank"
+    assert plank_data["hold_seconds"] == 60.5
+
+def test_exercise_filtering_and_stats(client):
+    now = datetime.now(timezone.utc)
+    
+    # Create squat workout
+    client.post("/api/workouts", json={
+        "session_id": "filter-squat-1",
+        "exercise_id": "squat",
+        "start_time": now.isoformat(),
+        "end_time": now.isoformat(),
+        "duration_seconds": 100.0,
+        "valid_reps": 20,
+        "reps": 20
+    })
+    # Create pushup workout
+    client.post("/api/workouts", json={
+        "session_id": "filter-pushup-1",
+        "exercise_id": "pushup",
+        "start_time": now.isoformat(),
+        "end_time": now.isoformat(),
+        "duration_seconds": 80.0,
+        "valid_reps": 10,
+        "reps": 10
+    })
+
+    # Filter workouts by exercise_id
+    pushup_list = client.get("/api/workouts?exercise_id=pushup").json()
+    assert len(pushup_list) == 1
+    assert pushup_list[0]["exercise_id"] == "pushup"
+
+    squat_list = client.get("/api/workouts?exercise_id=squat").json()
+    assert len(squat_list) == 1
+    assert squat_list[0]["exercise_id"] == "squat"
+
+    # Filter stats by exercise_id
+    pushup_stats = client.get("/api/stats/summary?exercise_id=pushup").json()
+    assert pushup_stats["total_workouts"] == 1
+    assert pushup_stats["total_reps"] == 10
+    assert pushup_stats["total_duration_seconds"] == 80.0
+
+    # Overall stats includes exercise_stats breakdown
+    all_stats = client.get("/api/stats/summary").json()
+    assert all_stats["total_workouts"] == 2
+    assert "pushup" in all_stats["exercise_stats"]
+    assert all_stats["exercise_stats"]["pushup"]["workouts"] == 1
+    assert all_stats["exercise_stats"]["pushup"]["reps"] == 10
+    assert "squat" in all_stats["exercise_stats"]
+    assert all_stats["exercise_stats"]["squat"]["workouts"] == 1
+    assert all_stats["exercise_stats"]["squat"]["reps"] == 20
+
+def test_old_row_compatibility_defaults_to_squat(client):
+    from app.models.workout import Workout
+    db = TestingSessionLocal()
+    now = datetime.now(timezone.utc)
+    # Simulate a legacy database row where exercise_id is NULL
+    legacy_workout = Workout(
+        session_id="legacy-old-row-1",
+        exercise_type="squat",
+        exercise_id=None,
+        start_time=now,
+        end_time=now,
+        duration_seconds=150.0,
+        valid_reps=10,
+        incomplete_attempts=0
+    )
+    db.add(legacy_workout)
+    db.commit()
+    db.refresh(legacy_workout)
+    workout_id = legacy_workout.id
+    db.close()
+
+    # Querying legacy row by ID should default exercise_id to squat in response
+    res = client.get(f"/api/workouts/{workout_id}")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["exercise_id"] == "squat"
+
+    # Querying workouts with exercise_id=squat should include the legacy row
+    squat_res = client.get("/api/workouts?exercise_id=squat")
+    assert squat_res.status_code == 200
+    matching = [w for w in squat_res.json() if w["session_id"] == "legacy-old-row-1"]
+    assert len(matching) == 1
+
+

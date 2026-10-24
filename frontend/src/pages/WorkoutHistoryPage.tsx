@@ -18,9 +18,12 @@ import { api } from '../services/api';
 import { WorkoutSessionSummary } from '../types/pose';
 import { ConfirmModal } from '../components/ConfirmModal';
 
+import { EXERCISE_LIST } from '../utils/exerciseConfigs';
+
 export const WorkoutHistoryPage: React.FC = () => {
   const navigate = useNavigate();
   const [workouts, setWorkouts] = useState<WorkoutSessionSummary[]>([]);
+  const [filterExercise, setFilterExercise] = useState<string>('all');
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,6 +44,7 @@ export const WorkoutHistoryPage: React.FC = () => {
         sort_by: sortBy,
         order: sortOrder,
         limit: 100,
+        exercise_id: filterExercise !== 'all' ? filterExercise : undefined,
       });
       setWorkouts(data);
     } catch (err: unknown) {
@@ -53,7 +57,7 @@ export const WorkoutHistoryPage: React.FC = () => {
 
   useEffect(() => {
     fetchWorkouts();
-  }, [sortBy, sortOrder]);
+  }, [sortBy, sortOrder, filterExercise]);
 
   const handleDeleteConfirm = async () => {
     if (deleteTargetId === null) return;
@@ -128,11 +132,26 @@ export const WorkoutHistoryPage: React.FC = () => {
 
       {/* Sorting & Filter Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl bg-dark-900 border border-white/5 text-xs text-slate-300">
-        <span className="font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-          <Filter className="w-3.5 h-3.5 text-brand-neon" /> Sort By:
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+            <Filter className="w-3.5 h-3.5 text-brand-neon" /> Exercise:
+          </span>
+          <select
+            value={filterExercise}
+            onChange={(e) => setFilterExercise(e.target.value)}
+            className="px-3 py-1.5 rounded-lg bg-dark-850 border border-white/10 text-white font-semibold text-xs outline-none focus:border-brand-500"
+          >
+            <option value="all">All Exercises</option>
+            {EXERCISE_LIST.map((ex) => (
+              <option key={ex.id} value={ex.id}>
+                {ex.name}
+              </option>
+            ))}
+          </select>
+        </div>
 
         <div className="flex items-center gap-2">
+          <span className="font-semibold uppercase tracking-wider text-slate-400">Sort:</span>
           <button
             onClick={() => toggleSort('created_at')}
             className={`px-3 py-1.5 rounded-lg border transition-colors flex items-center gap-1 ${

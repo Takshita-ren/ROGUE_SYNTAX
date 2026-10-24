@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   Play,
   Pause,
@@ -17,17 +17,31 @@ import {
   HelpCircle,
   FlipHorizontal,
   ChevronRight,
+  Timer,
+  Layers,
+  Award,
+  Sparkles,
 } from 'lucide-react';
 import { useWebcam } from '../hooks/useWebcam';
-import { getPoseLandmarker, disposePoseLandmarker } from '../utils/poseLandmarker';
-import { SquatStateMachine } from '../utils/squatStateMachine';
+import { getPoseLandmarker } from '../utils/poseLandmarker';
+import { ExerciseEngine } from '../utils/exerciseEngine';
+import { EXERCISE_CONFIGS, EXERCISE_LIST } from '../utils/exerciseConfigs';
 import { drawSkeleton } from '../utils/skeletonDrawer';
 import { audioEngine } from '../utils/audioChime';
-import { SquatAnalysisFrame, SquatState, WorkoutSessionSummary } from '../types/pose';
+import {
+  ExerciseAnalysisFrame,
+  ExerciseConfig,
+  WorkoutSessionSummary,
+} from '../types/pose';
 import type { PoseLandmarker } from '@mediapipe/tasks-vision';
 
 export const WorkoutPage: React.FC = () => {
   const navigate = useNavigate();
+  const { exerciseId } = useParams<{ exerciseId?: string }>();
+
+  // Resolve active exercise configuration
+  const activeExerciseKey = exerciseId && EXERCISE_CONFIGS[exerciseId] ? exerciseId : 'squat';
+  const exerciseConfig: ExerciseConfig = EXERCISE_CONFIGS[activeExerciseKey];
 
   // Webcam Hook
   const {
@@ -57,16 +71,29 @@ export const WorkoutPage: React.FC = () => {
   // Real-time Metrics
   const [repCount, setRepCount] = useState<number>(0);
   const [incompleteCount, setIncompleteCount] = useState<number>(0);
-  const [currentKneeAngle, setCurrentKneeAngle] = useState<number>(175);
-  const [squatState, setSquatState] = useState<SquatState>('READY');
-  const [activeFeedback, setActiveFeedback] = useState<string>('Step back and position full body in camera');
+  const [holdSeconds, setHoldSeconds] = useState<number>(0);
+  const [currentPrimaryAngle, setCurrentPrimaryAngle] = useState<number>(175);
+  const [movementPhase, setMovementPhase] = useState<string>('READY');
+  const [activeFeedback, setActiveFeedback] = useState<string>(exerciseConfig.camera.setupTip);
   const [trackingConfidence, setTrackingConfidence] = useState<number>(0);
   const [isPositionedWell, setIsPositionedWell] = useState<boolean>(false);
+  const [isLowVisibilityPaused, setIsLowVisibilityPaused] = useState<boolean>(false);
 
-  // Settings
+  // Target Goal & Set Completion
+  const [targetGoal, setTargetGoal] = useState<number>(() => {
+    const saved = localStorage.getItem(`repright_target_${exerciseConfig.id}`);
+    if (saved) return parseInt(saved, 10);
+    return exerciseConfig.mode === 'hold'
+      ? exerciseConfig.defaultTargetHoldSeconds || 45
+      : exerciseConfig.defaultTargetReps || 15;
+  });
+  const [isGoalCompleted, setIsGoalCompleted] = useState<boolean>(false);
+
+  // Settings & Modals
   const [showSkeleton, setShowSkeleton] = useState<boolean>(true);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [showHelpModal, setShowHelpModal] = useState<boolean>(false);
+  const [showExerciseSwitcher, setShowExerciseSwitcher] = useState<boolean>(false);
 
   // Timer & Session Duration
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
@@ -75,7 +102,7 @@ export const WorkoutPage: React.FC = () => {
 
   // Refs for State Machine & MediaPipe
   const landmarkerRef = useRef<PoseLandmarker | null>(null);
-  const stateMachineRef = useRef<SquatStateMachine | null>(null);
+  const engineRef = useRef<ExerciseEngine | null>(null);
   const animFrameIdRef = useRef<number | null>(null);
   const lastVideoTimeRef = useRef<number>(-1);
   const isPausedRef = useRef<boolean>(false);
@@ -85,23 +112,33 @@ export const WorkoutPage: React.FC = () => {
     isPausedRef.current = isPaused;
   }, [isPaused]);
 
-  // Initialize State Machine with audio callback
+  // Sync engine when exerciseConfig changes
   useEffect(() => {
-    stateMachineRef.current = new SquatStateMachine(
-      {},
+    engineRef.current = new ExerciseEngine(
+      exerciseConfig,
       (_completedRep) => {
-        // Trigger Rep Audio Chime!
         audioEngine.playRepCompleteSound();
       },
       (_incompleteReason) => {
         audioEngine.playNoticeSound();
+      },
+      () => {
+        // Target reached callback
+        setIsGoalCompleted(true);
+        audioEngine.playRepCompleteSound();
       }
     );
 
+    setRepCount(0);
+    setIncompleteCount(0);
+    setHoldSeconds(0);
+    setIsGoalCompleted(false);
+    setActiveFeedback(exerciseConfig.camera.setupTip);
+
     return () => {
-      stateMachineRef.current = null;
+      engineRef.current = null;
     };
-  }, []);
+  }, [exerciseConfig]);
 
   // Initialize MediaPipe PoseLandmarker
   useEffect(() => {
@@ -157,16 +194,14 @@ export const WorkoutPage: React.FC = () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
     const landmarker = landmarkerRef.current;
-    const stateMachine = stateMachineRef.current;
+    const engine = engineRef.current;
 
-    if (!video || !canvas || !landmarker || !stateMachine) {
+    if (!video || !canvas || !landmarker || !engine) {
       animFrameIdRef.current = requestAnimationFrame(runInferenceLoop);
       return;
     }
 
-    // Only process if video is loaded and ready
     if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
-      // Sync canvas dimensions to video
       if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
@@ -175,27 +210,25 @@ export const WorkoutPage: React.FC = () => {
       const ctx = canvas.getContext('2d');
       const currentTime = video.currentTime;
 
-      // Avoid redundant inference on identical video frame
       if (currentTime !== lastVideoTimeRef.current) {
         lastVideoTimeRef.current = currentTime;
 
         try {
-          // Detect pose landmarks
           const startTimeMs = performance.now();
           const results = landmarker.detectForVideo(video, startTimeMs);
-
           const landmarks = results.landmarks && results.landmarks.length > 0 ? results.landmarks[0] : null;
 
           if (landmarks && isWorkoutActive && !isPausedRef.current) {
-            // Update State Machine
-            const frame: SquatAnalysisFrame = stateMachine.update(landmarks, startTimeMs);
+            const frame: ExerciseAnalysisFrame = engine.update(landmarks, startTimeMs);
 
             setRepCount(frame.validReps);
             setIncompleteCount(frame.incompleteAttempts);
-            setCurrentKneeAngle(frame.kneeAngle);
-            setSquatState(frame.state);
+            setHoldSeconds(frame.holdSeconds);
+            setCurrentPrimaryAngle(frame.primaryAngle);
+            setMovementPhase(frame.state);
             setTrackingConfidence(frame.confidence);
             setIsPositionedWell(frame.isPositionedWell);
+            setIsLowVisibilityPaused(frame.isPausedLowVisibility);
 
             if (frame.feedback.length > 0) {
               setActiveFeedback(frame.feedback[0]);
@@ -203,19 +236,22 @@ export const WorkoutPage: React.FC = () => {
           } else if (!landmarks) {
             setTrackingConfidence(0);
             if (isWorkoutActive && !isPausedRef.current) {
-              stateMachine.update(null, startTimeMs);
-              setActiveFeedback('No pose detected. Position yourself in the camera view.');
+              engine.update(null, startTimeMs);
+              setActiveFeedback('No pose detected. Position yourself in camera.');
             }
           }
 
-          // Render skeleton canvas
+          // Render skeleton canvas with per-exercise joint/bone highlights
           if (ctx) {
             if (showSkeleton && landmarks) {
               drawSkeleton(ctx, landmarks, canvas.width, canvas.height, {
                 mirrored: isMirrored,
                 showAngleBadges: true,
-                currentKneeAngle: currentKneeAngle,
-                squatState: squatState,
+                currentPrimaryAngle: currentPrimaryAngle,
+                primaryAngleLabel: exerciseConfig.trackedAngles[0]?.label,
+                squatState: movementPhase,
+                highlightJoints: exerciseConfig.highlightJoints,
+                highlightBones: exerciseConfig.highlightBones,
               });
             } else {
               ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -228,7 +264,15 @@ export const WorkoutPage: React.FC = () => {
     }
 
     animFrameIdRef.current = requestAnimationFrame(runInferenceLoop);
-  }, [videoRef, isWorkoutActive, showSkeleton, isMirrored, currentKneeAngle, squatState]);
+  }, [
+    videoRef,
+    isWorkoutActive,
+    showSkeleton,
+    isMirrored,
+    currentPrimaryAngle,
+    movementPhase,
+    exerciseConfig,
+  ]);
 
   // Start inference loop when video stream is active
   useEffect(() => {
@@ -259,14 +303,16 @@ export const WorkoutPage: React.FC = () => {
       const ok = await startCamera();
       if (!ok) return;
     }
-    stateMachineRef.current?.reset();
+    engineRef.current?.reset();
     setRepCount(0);
     setIncompleteCount(0);
+    setHoldSeconds(0);
     setElapsedSeconds(0);
     setIsPaused(false);
+    setIsGoalCompleted(false);
     workoutStartTimeRef.current = new Date().toISOString();
     setIsWorkoutActive(true);
-    setActiveFeedback('Ready. Begin your squat descent.');
+    setActiveFeedback(exerciseConfig.camera.setupTip);
   };
 
   const handlePauseWorkout = () => {
@@ -278,40 +324,45 @@ export const WorkoutPage: React.FC = () => {
   };
 
   const handleEndWorkout = () => {
-    // Generate workout summary from real measured data
-    const stats = stateMachineRef.current?.getStats();
+    const stats = engineRef.current?.getStats();
     const endTime = new Date().toISOString();
     const duration = elapsedSeconds;
 
-    // Build session summary
+    const isHoldMode = exerciseConfig.mode === 'hold';
+
     const summary: WorkoutSessionSummary = {
       session_id: `rep_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      exercise_type: 'squat',
+      exercise_type: exerciseConfig.name,
+      exercise_id: exerciseConfig.id,
       start_time: workoutStartTimeRef.current || new Date(Date.now() - duration * 1000).toISOString(),
       end_time: endTime,
       duration_seconds: duration,
-      valid_reps: stats?.validReps ?? repCount,
+      valid_reps: isHoldMode ? Math.floor(stats?.holdSeconds ?? holdSeconds) : (stats?.validReps ?? repCount),
       incomplete_attempts: stats?.incompleteAttempts ?? incompleteCount,
+      reps: isHoldMode ? undefined : (stats?.validReps ?? repCount),
+      hold_seconds: isHoldMode ? (stats?.holdSeconds ?? holdSeconds) : undefined,
       feedback_summary: stats?.feedbackSummary ?? [],
       rep_data: stats?.repHistory ?? [],
     };
 
-    // Save summary into sessionStorage for summary view
     sessionStorage.setItem('current_workout_summary', JSON.stringify(summary));
 
-    // Stop workout
     setIsWorkoutActive(false);
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
 
-    // Navigate to summary page
     navigate('/summary');
   };
 
   const formatTimer = (totalSeconds: number): string => {
     const mins = Math.floor(totalSeconds / 60);
-    const secs = totalSeconds % 60;
+    const secs = Math.floor(totalSeconds % 60);
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
+
+  const isHoldMode = exerciseConfig.mode === 'hold';
+  const progressPercent = isHoldMode
+    ? Math.min(100, (holdSeconds / Math.max(1, targetGoal)) * 100)
+    : Math.min(100, (repCount / Math.max(1, targetGoal)) * 100);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -323,17 +374,32 @@ export const WorkoutPage: React.FC = () => {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-lg font-bold text-white">Bodyweight Squat</h2>
+              <h2 className="text-lg font-bold text-white">{exerciseConfig.name}</h2>
               <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-brand-500/10 text-brand-neon border border-brand-500/20">
-                Live AI Form Coach
+                {exerciseConfig.category}
+              </span>
+              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-dark-850 text-slate-300 border border-white/5">
+                {isHoldMode ? 'Timed Hold' : 'Reps'}
               </span>
             </div>
-            <p className="text-xs text-slate-400">Standard Biomechanical Knee Depth Tracking</p>
+            <p className="text-xs text-slate-400">
+              {exerciseConfig.camera.recommendedView.toUpperCase()} VIEW &bull; {exerciseConfig.camera.setupTip}
+            </p>
           </div>
         </div>
 
-        {/* Workout Timer */}
-        <div className="flex items-center gap-4">
+        {/* Workout Actions & Timer */}
+        <div className="flex items-center gap-3">
+          {/* Change Exercise Button */}
+          <button
+            onClick={() => setShowExerciseSwitcher(true)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-dark-850 hover:bg-dark-800 text-xs font-semibold text-slate-300 hover:text-white border border-white/5 transition-all"
+          >
+            <Layers className="w-4 h-4 text-brand-neon" />
+            <span>Switch Exercise</span>
+          </button>
+
+          {/* Workout Timer */}
           <div className="px-4 py-2 rounded-xl bg-dark-850 border border-white/5 text-center">
             <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold block">
               Elapsed Time
@@ -387,7 +453,7 @@ export const WorkoutPage: React.FC = () => {
                         {isModelLoading ? 'Loading MediaPipe AI Model...' : 'Accessing Webcam...'}
                       </h3>
                       <p className="text-xs text-slate-400">
-                        Preparing real-time landmark tracking pipeline...
+                        Preparing real-time landmark tracking pipeline for {exerciseConfig.name}...
                       </p>
                     </div>
                   </div>
@@ -414,7 +480,7 @@ export const WorkoutPage: React.FC = () => {
                     <div>
                       <h3 className="text-xl font-bold text-white mb-2">Camera Inactive</h3>
                       <p className="text-sm text-slate-400 mb-6">
-                        Allow webcam access to enable real-time pose tracking. Your video is processed 100% locally on your device.
+                        Allow webcam access to track {exerciseConfig.name} form in real-time. Video is processed 100% locally on your device.
                       </p>
                       <button
                         onClick={handleStartWorkout}
@@ -448,21 +514,35 @@ export const WorkoutPage: React.FC = () => {
                   </div>
 
                   <div className="px-3 py-1.5 rounded-xl bg-black/60 backdrop-blur-md border border-white/10 text-xs font-semibold text-slate-300">
-                    PHASE: <span className="text-brand-neon uppercase font-bold">{squatState}</span>
+                    PHASE: <span className="text-brand-neon uppercase font-bold">{movementPhase}</span>
                   </div>
+
+                  {isLowVisibilityPaused && (
+                    <div className="px-3 py-1.5 rounded-xl bg-rose-500/80 backdrop-blur-md text-xs font-bold text-white border border-rose-400 animate-pulse">
+                      PAUSED: MOVE BACK INTO VIEW
+                    </div>
+                  )}
                 </div>
 
                 {/* Top Right HUD: Live Joint Angle */}
                 <div className="absolute top-4 right-4 z-10">
                   <div className="px-4 py-2 rounded-xl bg-black/70 backdrop-blur-md border border-white/10 text-right">
                     <span className="text-[10px] uppercase font-bold text-slate-400 block">
-                      Knee Angle
+                      {exerciseConfig.trackedAngles[0]?.label || 'Primary Angle'}
                     </span>
                     <span className="text-2xl font-black text-brand-neon font-mono">
-                      {Math.round(currentKneeAngle)}°
+                      {Math.round(currentPrimaryAngle)}°
                     </span>
                   </div>
                 </div>
+
+                {/* Target Reached Banner */}
+                {isGoalCompleted && (
+                  <div className="absolute top-20 inset-x-8 z-20 p-3 rounded-xl bg-gradient-to-r from-emerald-500/90 to-teal-500/90 backdrop-blur-md text-white text-center font-bold text-sm shadow-neon flex items-center justify-center gap-2">
+                    <Sparkles className="w-5 h-5 text-yellow-300 animate-bounce" />
+                    <span>Target Goal Reached! Excellent set completion.</span>
+                  </div>
+                )}
 
                 {/* Bottom HUD: Live Form Feedback Banner */}
                 <div className="absolute bottom-4 inset-x-4 z-10 flex flex-col items-center gap-2">
@@ -473,7 +553,6 @@ export const WorkoutPage: React.FC = () => {
                     </span>
                   </div>
 
-                  {/* Shutter / Black Screen diagnostic tip if confidence is zero while stream is running */}
                   {trackingConfidence === 0 && (
                     <div className="px-3 py-1 rounded-lg bg-black/75 backdrop-blur-md text-[11px] text-amber-300 border border-amber-500/30 flex items-center gap-1.5">
                       <AlertTriangle className="w-3 h-3 text-amber-400" />
@@ -551,52 +630,45 @@ export const WorkoutPage: React.FC = () => {
 
         {/* Metrics & Workout Action Controls (1 Column) */}
         <div className="space-y-6 flex flex-col justify-between">
-          {/* Big Prominent Repetition Counter */}
+          {/* Prominent Repetition or Hold Counter */}
           <div className="p-6 rounded-2xl bg-dark-900 border border-white/5 text-center relative overflow-hidden">
             <div className="text-xs uppercase font-extrabold tracking-wider text-slate-400 mb-2">
-              Completed Repetitions
+              {isHoldMode ? 'Accumulated Hold Time' : 'Completed Repetitions'}
             </div>
             <div className="text-7xl font-black text-brand-neon tracking-tight font-mono text-glow my-3">
-              {repCount}
+              {isHoldMode ? `${Math.floor(holdSeconds)}s` : repCount}
             </div>
 
-            {incompleteCount > 0 && (
+            {/* Target indicator */}
+            <div className="text-xs text-slate-400 flex items-center justify-center gap-1.5 mb-2">
+              <Award className="w-3.5 h-3.5 text-brand-neon" />
+              <span>Target: {targetGoal} {isHoldMode ? 'seconds' : 'reps'}</span>
+            </div>
+
+            {!isHoldMode && incompleteCount > 0 && (
               <div className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-semibold">
                 <span>{incompleteCount} shallow attempt{incompleteCount > 1 ? 's' : ''}</span>
               </div>
             )}
           </div>
 
-          {/* Biomechanical Angle Gauge */}
+          {/* Goal Progress Bar */}
           <div className="p-5 rounded-2xl bg-dark-900 border border-white/5 space-y-3">
             <div className="flex items-center justify-between text-xs text-slate-400">
-              <span className="font-semibold uppercase tracking-wider">Squat Depth Target</span>
-              <span className="font-mono text-brand-neon font-bold">≤ 102°</span>
+              <span className="font-semibold uppercase tracking-wider">Set Progress</span>
+              <span className="font-mono text-brand-neon font-bold">{Math.round(progressPercent)}%</span>
             </div>
 
-            {/* Depth progress bar */}
             <div className="w-full bg-dark-850 h-3 rounded-full overflow-hidden p-0.5 border border-white/5">
-              {/* Maps 170° (standing) down to 90° (full depth) */}
               <div
-                className={`h-full rounded-full transition-all duration-150 ${
-                  currentKneeAngle <= 102
-                    ? 'bg-brand-neon shadow-neon'
-                    : currentKneeAngle <= 140
-                    ? 'bg-amber-400'
-                    : 'bg-slate-600'
-                }`}
-                style={{
-                  width: `${Math.min(
-                    100,
-                    Math.max(0, ((170 - currentKneeAngle) / (170 - 90)) * 100)
-                  )}%`,
-                }}
+                className="h-full rounded-full transition-all duration-300 bg-brand-neon shadow-neon"
+                style={{ width: `${progressPercent}%` }}
               />
             </div>
 
             <div className="flex justify-between text-[11px] text-slate-500">
-              <span>Standing (170°)</span>
-              <span>Parallel (100°)</span>
+              <span>0</span>
+              <span>{targetGoal} {isHoldMode ? 'sec' : 'reps'}</span>
             </div>
           </div>
 
@@ -643,34 +715,94 @@ export const WorkoutPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Exercise Switcher Modal */}
+      {showExerciseSwitcher && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="w-full max-w-4xl p-6 sm:p-8 rounded-3xl bg-dark-900 border border-white/10 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                  <Layers className="w-5 h-5 text-brand-neon" />
+                  <span>Select Exercise</span>
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Switch to any of the 8 AI-coached exercises
+                </p>
+              </div>
+              <button
+                onClick={() => setShowExerciseSwitcher(false)}
+                className="px-3 py-1.5 rounded-lg bg-dark-850 text-slate-400 hover:text-white text-xs"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {EXERCISE_LIST.map((ex) => (
+                <div
+                  key={ex.id}
+                  onClick={() => {
+                    setShowExerciseSwitcher(false);
+                    navigate(`/workout/${ex.id}`);
+                  }}
+                  className={`p-4 rounded-xl cursor-pointer transition-all border ${
+                    ex.id === exerciseConfig.id
+                      ? 'bg-brand-500/10 border-brand-neon shadow-neon'
+                      : 'bg-dark-850 hover:bg-dark-800 border-white/5'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-white/5 text-brand-neon">
+                      {ex.category}
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      {ex.mode === 'hold' ? 'Hold' : 'Reps'}
+                    </span>
+                  </div>
+                  <h4 className="text-sm font-bold text-white mb-1">{ex.name}</h4>
+                  <p className="text-[11px] text-slate-400 line-clamp-2">{ex.camera.setupTip}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Positioning Guide Modal */}
       {showHelpModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
           <div className="w-full max-w-lg p-6 rounded-2xl bg-dark-900 border border-white/10 shadow-2xl space-y-4">
             <h3 className="text-xl font-bold text-white flex items-center gap-2">
               <CheckCircle2 className="w-5 h-5 text-brand-neon" />
-              <span>Camera Setup & Squat Technique</span>
+              <span>{exerciseConfig.name} &bull; Camera Setup</span>
             </h3>
 
             <div className="space-y-3 text-sm text-slate-300">
               <p>
-                <strong className="text-white">1. Full Body in View:</strong> Place your camera 6–8 feet away. Make sure your head, hips, knees, and ankles are completely visible.
+                <strong className="text-white">1. Recommended Angle:</strong> Position camera for a{' '}
+                <span className="text-brand-neon uppercase font-bold">
+                  {exerciseConfig.camera.recommendedView}
+                </span>{' '}
+                view.
               </p>
               <p>
-                <strong className="text-white">2. Angle:</strong> A front or 45-degree angle works best for tracking both knees and torso posture.
+                <strong className="text-white">2. Positioning:</strong> {exerciseConfig.camera.setupTip}
               </p>
               <p>
-                <strong className="text-white">3. Full Squat Depth:</strong> Descend until your hip crease dips parallel with your knees (knee angle ≤ 102°).
+                <strong className="text-white">3. Mode:</strong>{' '}
+                {isHoldMode
+                  ? 'Isometric hold — time accumulates while maintaining good posture.'
+                  : 'Repetitions — each full cycle through start and lockout counts as 1 rep.'}
               </p>
               <p>
-                <strong className="text-white">4. Return to Standing:</strong> Stand completely upright (knee angle ≥ 160°) to lock out the repetition.
+                <strong className="text-white">4. Biomechanical Cues:</strong> Follow real-time on-screen coaching cues to perfect your technique.
               </p>
             </div>
 
             <div className="pt-4 border-t border-white/5 flex justify-end">
               <button
                 onClick={() => setShowHelpModal(false)}
-                className="px-5 py-2.5 rounded-xl bg-brand-500 text-dark-950 font-bold text-sm"
+                className="px-5 py-2.5 rounded-xl bg-brand-500 text-dark-950 font-bold text-sm shadow-neon"
               >
                 Got It
               </button>

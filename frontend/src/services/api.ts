@@ -55,8 +55,11 @@ class ApiClient {
     return this.request('/api/health');
   }
 
-  public async getStatsSummary(): Promise<StatsSummary> {
-    return this.request('/api/stats/summary');
+  public async getStatsSummary(params: { exercise_id?: string } = {}): Promise<StatsSummary> {
+    const query = new URLSearchParams();
+    if (params.exercise_id) query.set('exercise_id', params.exercise_id);
+    const qs = query.toString();
+    return this.request(`/api/stats/summary${qs ? `?${qs}` : ''}`);
   }
 
   public async getWorkouts(params: {
@@ -64,12 +67,14 @@ class ApiClient {
     limit?: number;
     sort_by?: string;
     order?: string;
+    exercise_id?: string;
   } = {}): Promise<WorkoutSessionSummary[]> {
     const query = new URLSearchParams();
     if (params.skip !== undefined) query.set('skip', params.skip.toString());
     if (params.limit !== undefined) query.set('limit', params.limit.toString());
     if (params.sort_by) query.set('sort_by', params.sort_by);
     if (params.order) query.set('order', params.order);
+    if (params.exercise_id) query.set('exercise_id', params.exercise_id);
 
     const qs = query.toString();
     return this.request(`/api/workouts${qs ? `?${qs}` : ''}`);
