@@ -26,23 +26,28 @@ import {
 import { api } from '../services/api';
 import { StatsSummary, WorkoutSessionSummary } from '../types/pose';
 import { StatCard } from '../components/StatCard';
+import { ExercisePicker } from '../components/ExercisePicker';
+import { EXERCISE_LIST } from '../utils/exerciseConfigs';
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
+  const [selectedExercise, setSelectedExercise] = useState<string>('all');
   const [stats, setStats] = useState<StatsSummary | null>(null);
   const [recentWorkouts, setRecentWorkouts] = useState<WorkoutSessionSummary[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRetrying, setIsRetrying] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = async (exerciseIdFilter?: string) => {
     setIsLoading(true);
     setIsRetrying(true);
     setError(null);
+    const activeEx = exerciseIdFilter !== undefined ? exerciseIdFilter : selectedExercise;
     try {
+      const filterParam = activeEx !== 'all' ? activeEx : undefined;
       const [statsData, workoutsData] = await Promise.all([
-        api.getStatsSummary(),
-        api.getWorkouts({ limit: 5, sort_by: 'created_at', order: 'desc' }),
+        api.getStatsSummary({ exercise_id: filterParam }),
+        api.getWorkouts({ limit: 5, sort_by: 'created_at', order: 'desc', exercise_id: filterParam }),
       ]);
       setStats(statsData);
       setRecentWorkouts(workoutsData);
@@ -56,8 +61,8 @@ export const DashboardPage: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchDashboardData();
-  }, []);
+    fetchDashboardData(selectedExercise);
+  }, [selectedExercise]);
 
   const formatDuration = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
@@ -96,7 +101,7 @@ export const DashboardPage: React.FC = () => {
         <h3 className="text-lg font-bold text-white mb-2">Unable to load dashboard data</h3>
         <p className="text-sm text-slate-400 mb-6 max-w-lg mx-auto">{error}</p>
         <button
-          onClick={fetchDashboardData}
+          onClick={() => fetchDashboardData()}
           disabled={isRetrying}
           className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-dark-850 hover:bg-dark-800 text-white border border-white/10 text-sm font-semibold transition-all disabled:opacity-50"
         >
@@ -123,8 +128,8 @@ export const DashboardPage: React.FC = () => {
           </h1>
           <p className="text-sm text-slate-400 max-w-xl">
             {isBrandNew
-              ? 'Ready to test your squat form? Launch your camera to complete your first coached workout.'
-              : `You have completed ${stats.total_workouts} workout session${stats.total_workouts > 1 ? 's' : ''} with a total of ${stats.total_reps} squats recorded.`}
+              ? 'Ready to test your form? Choose any exercise below to complete your coached workout.'
+              : `You have completed ${stats.total_workouts} session${stats.total_workouts > 1 ? 's' : ''} with ${stats.total_reps} total repetitions & hold achievements.`}
           </p>
         </div>
 
@@ -134,8 +139,40 @@ export const DashboardPage: React.FC = () => {
             className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl bg-brand-500 hover:bg-brand-400 text-dark-950 font-bold text-sm shadow-neon hover:shadow-neon-strong transition-all active:scale-95"
           >
             <Play className="w-4 h-4 fill-dark-950" />
-            <span>Start Squat Workout</span>
+            <span>Start Quick Workout</span>
           </button>
+        </div>
+      </div>
+
+      {/* Exercise Filter Toolbar */}
+      <div className="flex items-center justify-between flex-wrap gap-3 p-3 rounded-2xl bg-dark-900 border border-white/5">
+        <div className="flex items-center gap-2 text-xs font-semibold text-slate-400">
+          <span>Filter Analytics:</span>
+        </div>
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 max-w-full">
+          <button
+            onClick={() => setSelectedExercise('all')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap ${
+              selectedExercise === 'all'
+                ? 'bg-brand-500 text-dark-950 font-bold shadow-neon'
+                : 'bg-dark-850 text-slate-400 hover:text-white border border-white/5'
+            }`}
+          >
+            All Exercises
+          </button>
+          {EXERCISE_LIST.map((ex) => (
+            <button
+              key={ex.id}
+              onClick={() => setSelectedExercise(ex.id)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap ${
+                selectedExercise === ex.id
+                  ? 'bg-brand-500 text-dark-950 font-bold shadow-neon'
+                  : 'bg-dark-850 text-slate-400 hover:text-white border border-white/5'
+              }`}
+            >
+              {ex.name}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -144,12 +181,12 @@ export const DashboardPage: React.FC = () => {
         <StatCard
           title="Total Workouts"
           value={stats?.total_workouts ?? 0}
-          subtitle="Completed sessions"
+          subtitle={selectedExercise === 'all' ? 'All completed sessions' : `${selectedExercise} sessions`}
           icon={Dumbbell}
           accentColor="brand"
         />
         <StatCard
-          title="Total Squats"
+          title="Total Reps / Holds"
           value={stats?.total_reps ?? 0}
           subtitle="Validated repetitions"
           icon={Flame}
@@ -169,6 +206,17 @@ export const DashboardPage: React.FC = () => {
           icon={TrendingUp}
           accentColor="amber"
         />
+      </div>
+
+      {/* Exercise Catalog Section */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-bold text-white">Exercise Catalog</h2>
+            <p className="text-xs text-slate-400">Select any movement to launch camera-based form coaching</p>
+          </div>
+        </div>
+        <ExercisePicker compact />
       </div>
 
       {/* First-time Onboarding State if empty */}

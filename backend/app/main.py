@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.core.database import engine, Base
+from app.core.database import engine, Base, run_migrations
 from app.models import workout  # Ensure models are registered with Base
 from app.api.routes.workouts import router as workout_router
 
@@ -10,6 +10,7 @@ from app.api.routes.workouts import router as workout_router
 async def lifespan(app: FastAPI):
     # Initialize SQLite database tables on startup
     Base.metadata.create_all(bind=engine)
+    run_migrations(engine)
     yield
 
 app = FastAPI(

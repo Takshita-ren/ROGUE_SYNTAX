@@ -21,8 +21,11 @@ def health_check():
     }
 
 @router.get("/stats/summary", response_model=StatsSummaryResponse, tags=["Stats"])
-def get_stats_summary(db: Session = Depends(get_db)):
-    return workout_service.get_stats_summary(db)
+def get_stats_summary(
+    exercise_id: Optional[str] = Query(None, description="Filter stats by exercise ID"),
+    db: Session = Depends(get_db)
+):
+    return workout_service.get_stats_summary(db, exercise_id=exercise_id)
 
 @router.get("/workouts", response_model=List[WorkoutResponse], tags=["Workouts"])
 def list_workouts(
@@ -30,9 +33,10 @@ def list_workouts(
     limit: int = Query(50, ge=1, le=200),
     sort_by: str = Query("created_at", pattern="^(created_at|duration_seconds|valid_reps)$"),
     order: str = Query("desc", pattern="^(asc|desc)$"),
+    exercise_id: Optional[str] = Query(None, description="Filter workouts by exercise ID"),
     db: Session = Depends(get_db)
 ):
-    return workout_service.get_workouts(db, skip=skip, limit=limit, sort_by=sort_by, order=order)
+    return workout_service.get_workouts(db, skip=skip, limit=limit, sort_by=sort_by, order=order, exercise_id=exercise_id)
 
 @router.post("/workouts", response_model=WorkoutResponse, status_code=status.HTTP_201_CREATED, tags=["Workouts"])
 def create_workout(workout_in: WorkoutCreate, db: Session = Depends(get_db)):
