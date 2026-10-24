@@ -17,6 +17,7 @@ export interface UseWebcamReturn {
 
 export function useWebcam(): UseWebcamReturn {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +34,8 @@ export function useWebcam(): UseWebcamReturn {
       const allDevices = await navigator.mediaDevices.enumerateDevices();
       const videoInputs = allDevices.filter(d => d.kind === 'videoinput');
       setDevices(videoInputs);
-      if (videoInputs.length > 0 && !selectedDeviceId) {
+      // Only set selected device if it actually has a deviceId
+      if (videoInputs.length > 0 && !selectedDeviceId && videoInputs[0].deviceId) {
         setSelectedDeviceId(videoInputs[0].deviceId);
       }
     } catch (e) {
@@ -41,16 +43,50 @@ export function useWebcam(): UseWebcamReturn {
     }
   }, [selectedDeviceId]);
 
-  // Stop camera tracks cleanly
+  // Stop camera tracks cleanly using streamRef (stable function reference)
   const stopCamera = useCallback(() => {
-    if (stream) {
-      stream.getTracks().forEach(track => {
-        track.stop();
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => {
+        try {
+          track.stop();
+        } catch {}
       });
-      setStream(null);
+      streamRef.current = null;
     }
+    setStream(null);
+
     if (videoRef.current) {
       videoRef.current.srcObject = null;
+    }
+  }, []);
+
+  // Synchronize stream with video element
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (stream) {
+      video.srcObject = stream;
+      video.muted = true;
+      video.playsInline = true;
+      video.setAttribute('playsinline', 'true');
+      video.setAttribute('autoplay', 'true');
+
+      const attemptPlay = () => {
+        video.play().catch(err => {
+          console.warn('Video auto-play prevented or interrupted:', err);
+        });
+      };
+
+      if (video.readyState >= 1) {
+        attemptPlay();
+      } else {
+        video.onloadedmetadata = () => {
+          attemptPlay();
+        };
+      }
+    } else {
+      video.srcObject = null;
     }
   }, [stream]);
 
@@ -65,55 +101,95 @@ export function useWebcam(): UseWebcamReturn {
     setError(null);
 
     // Stop existing stream if running
-    if (stream) {
-      stream.getTracks().forEach(t => t.stop());
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => {
+        try {
+          t.stop();
+        } catch {}
+      });
+      streamRef.current = null;
     }
 
-    const targetDeviceId = deviceId || selectedDeviceId;
-    const constraints: MediaStreamConstraints = {
-      video: targetDeviceId
-        ? { deviceId: { exact: targetDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
-        : { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: false,
-    };
+    // Determine target device
+    const targetDeviceId = deviceId || (selectedDeviceId && selectedDeviceId.length > 5 ? selectedDeviceId : undefined);
 
+    let newStream: MediaStream;
     try {
-      const newStream = await navigator.mediaDevices.getUserMedia(constraints);
-      setStream(newStream);
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = newStream;
-        await videoRef.current.play();
+      if (targetDeviceId) {
+        newStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            deviceId: { exact: targetDeviceId },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        });
+      } else {
+        newStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: 'user',
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        });
       }
+    } catch (firstErr) {
+      console.warn('Preferred camera constraints failed, attempting fallback to generic video:', firstErr);
+      try {
+        newStream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+      } catch (err: unknown) {
+        setIsLoading(false);
+        let errMsg = 'Failed to access camera.';
+        if (err instanceof DOMException) {
+          if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+            errMsg = 'Camera permission denied. Please allow camera access in your browser/macOS settings.';
+          } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+            errMsg = 'No video camera detected on your device. Please connect a webcam.';
+          } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+            errMsg = 'Camera is currently in use by another application. Please close other camera apps and retry.';
+          } else {
+            errMsg = `Camera error: ${err.message}`;
+          }
+        }
+        setError(errMsg);
+        return false;
+      }
+    }
 
-      await refreshDevices();
-      setIsLoading(false);
-      return true;
-    } catch (err: unknown) {
-      setIsLoading(false);
-      let errMsg = 'Failed to access camera.';
-      if (err instanceof DOMException) {
-        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-          errMsg = 'Camera permission denied. Please allow camera access in your browser settings to continue.';
-        } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-          errMsg = 'No video camera detected on your device. Please plug in a webcam.';
-        } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-          errMsg = 'Camera is currently in use by another application. Please close other camera apps and retry.';
-        } else {
-          errMsg = `Camera error: ${err.message}`;
+    // Update active stream
+    streamRef.current = newStream;
+    setStream(newStream);
+
+    // Re-query devices now that permission is granted (to get real labels)
+    try {
+      const allDevices = await navigator.mediaDevices.enumerateDevices();
+      const videoInputs = allDevices.filter(d => d.kind === 'videoinput');
+      setDevices(videoInputs);
+
+      // Track active device ID from stream
+      const videoTrack = newStream.getVideoTracks()[0];
+      if (videoTrack) {
+        const settings = videoTrack.getSettings();
+        if (settings.deviceId) {
+          setSelectedDeviceId(settings.deviceId);
         }
       }
-      setError(errMsg);
-      return false;
+    } catch (e) {
+      console.warn('Device enumeration error:', e);
     }
-  }, [stream, selectedDeviceId, refreshDevices]);
+
+    setIsLoading(false);
+    return true;
+  }, [selectedDeviceId]);
 
   const selectDevice = useCallback(async (deviceId: string) => {
     setSelectedDeviceId(deviceId);
-    if (stream) {
-      await startCamera(deviceId);
-    }
-  }, [stream, startCamera]);
+    await startCamera(deviceId);
+  }, [startCamera]);
 
   const toggleMirror = useCallback(() => {
     setIsMirrored(prev => !prev);
@@ -127,11 +203,11 @@ export function useWebcam(): UseWebcamReturn {
   useEffect(() => {
     refreshDevices();
     return () => {
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
       }
     };
-  }, []);
+  }, [refreshDevices]);
 
   return {
     videoRef,

@@ -364,6 +364,9 @@ export const WorkoutPage: React.FC = () => {
               playsInline
               muted
               autoPlay
+              onLoadedMetadata={(e) => {
+                e.currentTarget.play().catch(() => {});
+              }}
               className={`w-full h-full object-cover ${isMirrored ? 'scale-x-[-1]' : ''}`}
             />
 
@@ -462,13 +465,21 @@ export const WorkoutPage: React.FC = () => {
                 </div>
 
                 {/* Bottom HUD: Live Form Feedback Banner */}
-                <div className="absolute bottom-4 inset-x-4 z-10 flex justify-center">
+                <div className="absolute bottom-4 inset-x-4 z-10 flex flex-col items-center gap-2">
                   <div className="w-full max-w-lg px-4 py-3 rounded-xl bg-dark-900/90 backdrop-blur-md border border-brand-500/30 text-center shadow-neon flex items-center justify-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-brand-neon flex-shrink-0" />
                     <span className="text-sm font-semibold text-white truncate">
                       {activeFeedback}
                     </span>
                   </div>
+
+                  {/* Shutter / Black Screen diagnostic tip if confidence is zero while stream is running */}
+                  {trackingConfidence === 0 && (
+                    <div className="px-3 py-1 rounded-lg bg-black/75 backdrop-blur-md text-[11px] text-amber-300 border border-amber-500/30 flex items-center gap-1.5">
+                      <AlertTriangle className="w-3 h-3 text-amber-400" />
+                      <span>If screen is black: check camera privacy shutter or switch camera in dropdown below.</span>
+                    </div>
+                  )}
                 </div>
               </>
             )}
@@ -477,19 +488,22 @@ export const WorkoutPage: React.FC = () => {
           {/* Camera & Overlay Controls Bar */}
           <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-dark-900 border border-white/5 text-xs text-slate-400">
             {/* Left Controls: Devices & Mirroring */}
-            <div className="flex items-center gap-3">
-              {devices.length > 1 && (
-                <select
-                  value={selectedDeviceId}
-                  onChange={(e) => selectDevice(e.target.value)}
-                  className="px-3 py-1.5 rounded-lg bg-dark-850 border border-white/10 text-xs text-slate-200 outline-none focus:border-brand-500"
-                >
-                  {devices.map((d) => (
-                    <option key={d.deviceId} value={d.deviceId}>
-                      {d.label || `Camera ${d.deviceId.slice(0, 5)}`}
-                    </option>
-                  ))}
-                </select>
+            <div className="flex flex-wrap items-center gap-3">
+              {devices.length > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <Camera className="w-3.5 h-3.5 text-brand-neon" />
+                  <select
+                    value={selectedDeviceId}
+                    onChange={(e) => selectDevice(e.target.value)}
+                    className="px-2.5 py-1.5 rounded-lg bg-dark-850 border border-white/10 text-xs text-slate-200 outline-none focus:border-brand-500 max-w-[200px] sm:max-w-xs truncate"
+                  >
+                    {devices.map((d, idx) => (
+                      <option key={d.deviceId || idx} value={d.deviceId}>
+                        {d.label || `Camera ${idx + 1}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               )}
 
               <button
