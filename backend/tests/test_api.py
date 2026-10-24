@@ -221,3 +221,38 @@ def test_clear_all_workouts(client):
 
     list_res_after = client.get("/api/workouts")
     assert len(list_res_after.json()) == 0
+
+def test_top_level_health_check(client):
+    response = client.get("/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "healthy"
+    assert data["service"] == "RepRight API"
+
+def test_cors_preflight(client):
+    deployed_origin = "https://rogue-syntax-mggsr6lev-rougue.vercel.app"
+    response = client.options(
+        "/api/stats/summary",
+        headers={
+            "Origin": deployed_origin,
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "Content-Type,Accept",
+        }
+    )
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == deployed_origin
+    assert "GET" in response.headers.get("access-control-allow-methods", "")
+
+def test_cors_vercel_preview_regex(client):
+    preview_origin = "https://rogue-syntax-preview-123.vercel.app"
+    response = client.options(
+        "/api/workouts",
+        headers={
+            "Origin": preview_origin,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "Content-Type",
+        }
+    )
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == preview_origin
+

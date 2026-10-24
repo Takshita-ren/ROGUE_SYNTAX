@@ -32,10 +32,12 @@ export const DashboardPage: React.FC = () => {
   const [stats, setStats] = useState<StatsSummary | null>(null);
   const [recentWorkouts, setRecentWorkouts] = useState<WorkoutSessionSummary[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isRetrying, setIsRetrying] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchDashboardData = async () => {
     setIsLoading(true);
+    setIsRetrying(true);
     setError(null);
     try {
       const [statsData, workoutsData] = await Promise.all([
@@ -49,6 +51,7 @@ export const DashboardPage: React.FC = () => {
       setError(err instanceof Error ? err.message : 'Failed to connect to backend server');
     } finally {
       setIsLoading(false);
+      setIsRetrying(false);
     }
   };
 
@@ -77,7 +80,7 @@ export const DashboardPage: React.FC = () => {
     }
   };
 
-  if (isLoading) {
+  if (isLoading && !stats) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
         <RefreshCw className="w-8 h-8 text-brand-neon animate-spin" />
@@ -86,18 +89,19 @@ export const DashboardPage: React.FC = () => {
     );
   }
 
-  if (error) {
+  if (error && !stats) {
     return (
-      <div className="max-w-2xl mx-auto my-12 p-6 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-center">
+      <div className="max-w-2xl mx-auto my-12 p-6 sm:p-8 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-center">
         <AlertCircle className="w-10 h-10 text-rose-400 mx-auto mb-3" />
         <h3 className="text-lg font-bold text-white mb-2">Unable to load dashboard data</h3>
-        <p className="text-sm text-slate-400 mb-6">{error}</p>
+        <p className="text-sm text-slate-400 mb-6 max-w-lg mx-auto">{error}</p>
         <button
           onClick={fetchDashboardData}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-dark-850 hover:bg-dark-800 text-white border border-white/10 text-sm font-semibold transition-all"
+          disabled={isRetrying}
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-dark-850 hover:bg-dark-800 text-white border border-white/10 text-sm font-semibold transition-all disabled:opacity-50"
         >
-          <RefreshCw className="w-4 h-4" />
-          <span>Retry Connection</span>
+          <RefreshCw className={`w-4 h-4 ${isRetrying ? 'animate-spin' : ''}`} />
+          <span>{isRetrying ? 'Retrying Connection...' : 'Retry Connection'}</span>
         </button>
       </div>
     );

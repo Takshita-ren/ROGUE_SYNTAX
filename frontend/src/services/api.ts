@@ -1,22 +1,38 @@
 import { WorkoutSessionSummary, StatsSummary } from '../types/pose';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+const RAW_API_URL: string = (import.meta.env.VITE_API_URL || '').trim();
+// Strip trailing slash to prevent double-slash redirects (e.g., //api/stats/summary)
+const API_BASE_URL = RAW_API_URL.replace(/\/+$/, '');
+
+export const getApiBaseUrl = (): string => API_BASE_URL;
 
 class ApiClient {
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-    const url = `${API_BASE_URL}${endpoint}`;
+    const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    const url = API_BASE_URL ? `${API_BASE_URL}${cleanEndpoint}` : cleanEndpoint;
     const defaultHeaders = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     };
 
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        ...defaultHeaders,
-        ...options.headers,
-      },
-    });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        ...options,
+        headers: {
+          ...defaultHeaders,
+          ...options.headers,
+        },
+      });
+    } catch (err: unknown) {
+      if (err instanceof TypeError && err.message.toLowerCase().includes('fetch')) {
+        const target = API_BASE_URL || window.location.origin;
+        throw new Error(
+          `Unable to connect to backend server at ${target}. The server may be waking up (Render cold starts take ~45s) or offline.`
+        );
+      }
+      throw err;
+    }
 
     if (!response.ok) {
       let errorMessage = `HTTP error! status: ${response.status}`;

@@ -190,9 +190,10 @@ export const WorkoutHistoryPage: React.FC = () => {
           <p className="text-xs text-slate-400 mb-4">{error}</p>
           <button
             onClick={fetchWorkouts}
-            className="px-4 py-2 rounded-xl bg-dark-850 text-white text-xs font-semibold"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-dark-850 hover:bg-dark-800 text-white text-xs font-semibold border border-white/10 transition-all"
           >
-            Retry
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Retry Connection</span>
           </button>
         </div>
       ) : workouts.length === 0 ? (
