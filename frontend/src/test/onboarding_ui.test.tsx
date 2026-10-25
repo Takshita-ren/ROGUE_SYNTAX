@@ -9,6 +9,27 @@ import { MyPlanPage } from '../pages/MyPlanPage';
 import { PlanExercise, ExerciseVariation, UserProfile } from '../types/plan';
 import { ALL_VARIATIONS } from '../utils/planGenerator';
 
+vi.mock('../services/api', () => ({
+  api: {
+    getHealth: vi.fn().mockResolvedValue({ status: 'healthy', service: 'RepRight API' }),
+    getDbStatus: vi.fn().mockResolvedValue({
+      status: 'healthy',
+      database_url_masked: 'sqlite:///replevel_workouts.db',
+      dialect: 'sqlite',
+      total_records: 4,
+      tables: {},
+    }),
+    getUserProfile: vi.fn().mockResolvedValue(null),
+    saveUserProfile: vi.fn().mockResolvedValue({}),
+    getWorkoutPlan: vi.fn().mockResolvedValue(null),
+    saveWorkoutPlan: vi.fn().mockResolvedValue({}),
+    getPlanProgress: vi.fn().mockResolvedValue({}),
+    markDayCompleted: vi.fn().mockResolvedValue({}),
+    toggleExerciseCompleted: vi.fn().mockResolvedValue({}),
+    updatePlanVariation: vi.fn().mockResolvedValue({}),
+  },
+}));
+
 describe('Personalized Onboarding & Workout Plan UI Components', () => {
   beforeEach(() => {
     localStorage.clear();

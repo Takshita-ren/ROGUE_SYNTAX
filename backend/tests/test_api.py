@@ -378,4 +378,139 @@ def test_old_row_compatibility_defaults_to_squat(client):
     matching = [w for w in squat_res.json() if w["session_id"] == "legacy-old-row-1"]
     assert len(matching) == 1
 
+def test_db_status_endpoint(client):
+    res = client.get("/api/db/status")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "healthy"
+    assert data["dialect"] == "sqlite"
+    assert "workouts" in data["tables"]
+    assert "user_profiles" in data["tables"]
+    assert "workout_plans" in data["tables"]
+    assert "plan_progress" in data["tables"]
+
+def test_profile_crud_endpoints(client):
+    # 1. No profile initially
+    res = client.get("/api/profile")
+    assert res.status_code == 200
+    assert res.json() is None
+
+    # 2. Create profile
+    payload = {
+        "user_id": "default_user",
+        "height": 178.5,
+        "height_unit": "cm",
+        "weight": 74.0,
+        "weight_unit": "kg",
+        "age_range": "26-35",
+        "fitness_level": "intermediate",
+        "main_goal": "weight_loss",
+        "workout_days_per_week": 4,
+        "equipment": ["bodyweight", "dumbbells"]
+    }
+    create_res = client.post("/api/profile", json=payload)
+    assert create_res.status_code == 200
+    created = create_res.json()
+    assert created["id"] is not None
+    assert created["height"] == 178.5
+    assert created["main_goal"] == "weight_loss"
+
+    # 3. Retrieve profile
+    get_res = client.get("/api/profile")
+    assert get_res.status_code == 200
+    retrieved = get_res.json()
+    assert retrieved["id"] == created["id"]
+    assert retrieved["weight"] == 74.0
+
+    # 4. Update profile
+    update_res = client.put("/api/profile", json={"fitness_level": "advanced", "weight": 72.5})
+    assert update_res.status_code == 200
+    updated = update_res.json()
+    assert updated["fitness_level"] == "advanced"
+    assert updated["weight"] == 72.5
+
+    # 5. Delete profile
+    del_res = client.delete("/api/profile")
+    assert del_res.status_code == 200
+    assert client.get("/api/profile").json() is None
+
+def test_plan_and_progress_endpoints(client):
+    # 1. No active plan initially
+    assert client.get("/api/plan").json() is None
+
+    # 2. Save active plan
+    plan_payload = {
+        "plan_id": "plan_test_123",
+        "user_id": "default_user",
+        "user_goal": "muscle_gain",
+        "fitness_level": "intermediate",
+        "workout_days_per_week": 3,
+        "equipment": ["bodyweight", "dumbbells"],
+        "days": [
+            {
+                "dayNumber": 1,
+                "dayName": "Day 1 - Monday",
+                "title": "Upper Body Hypertrophy",
+                "isRestDay": False,
+                "exercises": [
+                    {
+                        "id": "ex_1",
+                        "exerciseId": "pushup",
+                        "name": "Standard Push-Up",
+                        "selectedVariationId": "standard_pushup",
+                        "targetSets": 3,
+                        "recommendedSetsReps": "3 sets × 10–12 reps",
+                        "variations": [
+                            {"id": "wall_pushup", "name": "Wall Push-Up", "recommendedSetsReps": "3 × 10"},
+                            {"id": "standard_pushup", "name": "Standard Push-Up", "recommendedSetsReps": "3 × 12"}
+                        ]
+                    }
+                ]
+            }
+        ],
+        "weekly_guidance": "Consistency is key.",
+        "safety_disclaimer": "Stop if you feel pain."
+    }
+
+    create_res = client.post("/api/plan", json=plan_payload)
+    assert create_res.status_code == 201
+    created_plan = create_res.json()
+    assert created_plan["plan_id"] == "plan_test_123"
+    assert created_plan["is_active"] is True
+
+    # 3. Retrieve active plan
+    active_plan = client.get("/api/plan").json()
+    assert active_plan["plan_id"] == "plan_test_123"
+
+    # 4. Update exercise variation
+    var_res = client.put("/api/plan/variation", json={
+        "day_number": 1,
+        "exercise_id": "ex_1",
+        "variation_id": "wall_pushup"
+    })
+    assert var_res.status_code == 200
+    updated_plan = var_res.json()
+    first_ex = updated_plan["days"][0]["exercises"][0]
+    assert first_ex["selectedVariationId"] == "wall_pushup"
+    assert first_ex["name"] == "Wall Push-Up"
+
+    # 5. Mark Day 1 completed
+    day_res = client.post("/api/plan/progress/day", json={"day_number": 1, "is_completed": True})
+    assert day_res.status_code == 200
+    prog = day_res.json()["progress"]
+    assert "1" in prog
+    assert prog["1"]["is_completed"] is True
+
+    # 6. Toggle exercise completed
+    ex_res = client.post("/api/plan/progress/exercise", json={"day_number": 1, "exercise_id": "ex_1"})
+    assert ex_res.status_code == 200
+    prog2 = ex_res.json()["progress"]
+    assert "ex_1" in prog2["1"]["completed_exercises"]
+
+    # 7. Reset progress
+    reset_res = client.delete("/api/plan/progress")
+    assert reset_res.status_code == 200
+    assert len(client.get("/api/plan/progress").json()["progress"]) == 0
+
+
 

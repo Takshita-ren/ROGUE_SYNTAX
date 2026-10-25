@@ -19,6 +19,7 @@ import {
   Flame,
   Info,
   Check,
+  Database,
 } from 'lucide-react';
 import {
   UserProfile,
@@ -36,9 +37,12 @@ import {
   toggleExerciseCompleted,
   generateWorkoutPlan,
   saveWorkoutPlan,
+  saveUserProfile,
+  savePlanProgress,
   updateExerciseVariation,
   SAFETY_DISCLAIMER,
 } from '../utils/planGenerator';
+import { api } from '../services/api';
 import { ExerciseIllustration } from '../components/ExerciseIllustration';
 import { ExerciseVariationsModal } from '../components/ExerciseVariationsModal';
 import { GuidedWorkoutModal } from '../components/GuidedWorkoutModal';
@@ -51,6 +55,7 @@ export const MyPlanPage: React.FC = () => {
   const [profile, setProfile] = useState<UserProfile | null>(() => getUserProfile());
   const [plan, setPlan] = useState<WeeklyWorkoutPlan | null>(() => getWorkoutPlan());
   const [progress, setProgress] = useState<PlanProgressMap>(() => getPlanProgress());
+  const [dbSyncStatus, setDbSyncStatus] = useState<'synced' | 'syncing' | 'local'>('local');
 
   // UI state
   const [activeDayNumber, setActiveDayNumber] = useState<number>(1);
@@ -69,7 +74,7 @@ export const MyPlanPage: React.FC = () => {
   // Plan regeneration confirm
   const [showRegenConfirm, setShowRegenConfirm] = useState<boolean>(false);
 
-  // Sync state on load
+  // Sync state on load (both local storage cache + backend database)
   useEffect(() => {
     const loadedProfile = getUserProfile();
     const loadedPlan = getWorkoutPlan();
@@ -79,12 +84,61 @@ export const MyPlanPage: React.FC = () => {
     setPlan(loadedPlan);
     setProgress(loadedProgress);
 
-    // If profile exists but no plan yet, generate it
+    // If local profile exists but no plan yet, generate locally
     if (loadedProfile && !loadedPlan) {
       const generated = generateWorkoutPlan(loadedProfile);
       saveWorkoutPlan(generated);
       setPlan(generated);
     }
+
+    // Attempt bi-directional database synchronization
+    setDbSyncStatus('syncing');
+    api
+      .getUserProfile()
+      .then(async (dbProfile) => {
+        if (dbProfile) {
+          // Backend DB has a profile, sync to local state and localStorage
+          setProfile(dbProfile);
+          saveUserProfile(dbProfile);
+
+          try {
+            const dbPlan = await api.getWorkoutPlan();
+            if (dbPlan) {
+              setPlan(dbPlan);
+              saveWorkoutPlan(dbPlan);
+            }
+          } catch {
+            // Keep current plan
+          }
+
+          try {
+            const dbProgress = await api.getPlanProgress();
+            if (dbProgress && Object.keys(dbProgress).length > 0) {
+              setProgress(dbProgress);
+              savePlanProgress(dbProgress);
+            }
+          } catch {
+            // Keep current progress
+          }
+
+          setDbSyncStatus('synced');
+        } else {
+          // Backend has no profile yet; if we have local profile, push to backend DB!
+          if (loadedProfile) {
+            await api.saveUserProfile(loadedProfile).catch(console.warn);
+            if (loadedPlan) {
+              await api.saveWorkoutPlan(loadedPlan).catch(console.warn);
+            }
+            setDbSyncStatus('synced');
+          } else {
+            setDbSyncStatus('local');
+          }
+        }
+      })
+      .catch((err) => {
+        console.info('Backend database offline or waking up, using local storage cache:', err);
+        setDbSyncStatus('local');
+      });
   }, []);
 
   // Calculate weekly stats
@@ -106,12 +160,20 @@ export const MyPlanPage: React.FC = () => {
     const nextState = !isCurrentDayCompleted;
     const updatedProg = markDayCompleted(activeDayNumber, nextState);
     setProgress(updatedProg);
+    // Background database sync
+    api.markDayCompleted(activeDayNumber, nextState).catch((err) => {
+      console.warn('Could not sync day completion to DB:', err);
+    });
   };
 
   // Toggle individual exercise completion
   const handleToggleExercise = (exerciseId: string) => {
     const updatedProg = toggleExerciseCompleted(activeDayNumber, exerciseId);
     setProgress(updatedProg);
+    // Background database sync
+    api.toggleExerciseCompleted(activeDayNumber, exerciseId).catch((err) => {
+      console.warn('Could not sync exercise toggle to DB:', err);
+    });
   };
 
   // Switch variation
@@ -124,6 +186,10 @@ export const MyPlanPage: React.FC = () => {
     );
     if (updatedPlan) {
       setPlan(updatedPlan);
+      // Background database sync
+      api.updatePlanVariation(activeDayNumber, selectedExForVariations.id, variationId).catch((err) => {
+        console.warn('Could not sync variation change to DB:', err);
+      });
       // update selectedExForVariations reference
       const updatedDay = updatedPlan.days.find((d) => d.dayNumber === activeDayNumber);
       const updatedEx = updatedDay?.exercises.find((e) => e.id === selectedExForVariations.id);
@@ -158,6 +224,10 @@ export const MyPlanPage: React.FC = () => {
     saveWorkoutPlan(newPlan);
     setPlan(newPlan);
     setShowRegenConfirm(false);
+    // Background database sync
+    api.saveWorkoutPlan(newPlan).catch((err) => {
+      console.warn('Could not sync regenerated plan to DB:', err);
+    });
   };
 
   // Format goal name
@@ -243,6 +313,22 @@ export const MyPlanPage: React.FC = () => {
                   </span>
                   <span className="text-xs px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-slate-300">
                     {profile.workoutDaysPerWeek} Days / Week
+                  </span>
+                  <span
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                      dbSyncStatus === 'synced'
+                        ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400'
+                        : dbSyncStatus === 'syncing'
+                        ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
+                        : 'bg-white/5 border border-white/10 text-slate-400'
+                    }`}
+                  >
+                    <Database className="w-3.5 h-3.5" />
+                    {dbSyncStatus === 'synced'
+                      ? 'Database Synced'
+                      : dbSyncStatus === 'syncing'
+                      ? 'Syncing DB...'
+                      : 'Local Cache'}
                   </span>
                 </div>
 

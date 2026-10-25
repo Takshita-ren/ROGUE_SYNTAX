@@ -12,6 +12,25 @@ import { api } from '../services/api';
 vi.mock('../services/api', () => ({
   api: {
     getHealth: vi.fn().mockResolvedValue({ status: 'healthy', service: 'RepRight API' }),
+    getDbStatus: vi.fn().mockResolvedValue({
+      status: 'healthy',
+      database_url_masked: 'sqlite:///replevel_workouts.db',
+      dialect: 'sqlite',
+      total_records: 4,
+      tables: {
+        workouts: { name: 'workouts', row_count: 0, columns: ['id'] },
+        user_profiles: { name: 'user_profiles', row_count: 1, columns: ['id'] },
+        workout_plans: { name: 'workout_plans', row_count: 1, columns: ['id'] },
+        plan_progress: { name: 'plan_progress', row_count: 2, columns: ['id'] },
+      },
+    }),
+    getUserProfile: vi.fn().mockResolvedValue(null),
+    saveUserProfile: vi.fn().mockResolvedValue({}),
+    getWorkoutPlan: vi.fn().mockResolvedValue(null),
+    saveWorkoutPlan: vi.fn().mockResolvedValue({}),
+    getPlanProgress: vi.fn().mockResolvedValue({}),
+    markDayCompleted: vi.fn().mockResolvedValue({}),
+    toggleExerciseCompleted: vi.fn().mockResolvedValue({}),
     getStatsSummary: vi.fn().mockResolvedValue({
       total_workouts: 3,
       total_reps: 45,
