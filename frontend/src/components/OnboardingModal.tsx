@@ -28,6 +28,7 @@ import {
   generateWorkoutPlan,
   saveWorkoutPlan,
 } from '../utils/planGenerator';
+import { api } from '../services/api';
 
 interface OnboardingModalProps {
   isOpen: boolean;
@@ -218,6 +219,10 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
     saveUserProfile(profile);
     const plan = generateWorkoutPlan(profile);
     saveWorkoutPlan(plan);
+
+    // Asynchronously push to backend database
+    api.saveUserProfile(profile).catch((err) => console.warn('Database profile sync:', err));
+    api.saveWorkoutPlan(plan).catch((err) => console.warn('Database plan sync:', err));
 
     onComplete(profile, plan);
     onClose();

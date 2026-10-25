@@ -3,8 +3,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import engine, Base, run_migrations
-from app.models import workout  # Ensure models are registered with Base
+import app.models  # Ensure all models (Workout, UserProfile, WorkoutPlan, PlanProgress) are registered
 from app.api.routes.workouts import router as workout_router
+from app.api.routes.profiles import router as profile_router
+from app.api.routes.plans import router as plan_router
+from app.api.routes.db import router as db_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -47,6 +50,9 @@ else:
 
 # Include API routes
 app.include_router(workout_router, prefix=settings.API_PREFIX)
+app.include_router(profile_router, prefix=settings.API_PREFIX)
+app.include_router(plan_router, prefix=settings.API_PREFIX)
+app.include_router(db_router, prefix=settings.API_PREFIX)
 
 @app.get("/health", tags=["Health"])
 def health():
